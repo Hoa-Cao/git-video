@@ -1,0 +1,249 @@
+---
+title: "Assignment 2"
+author: "Hoa Cao"
+date: "19/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidytext)
+library(rtweet)
+
+#LATER NEED TO CHANGE THE FILE TO THE FULL+MERGED DATASET
+tweets<-read_csv("New_Final_Data_Baking.csv")
+```
+
+###Exploration and visualization of data
+
+This step is based on a class workshop and uses "rweet" package
+
+1. Present the first 10 tweets from your dataset using `kable()`. Use `kable()` in all steps to present the tabular data
+
+```{r}
+knitr::kable(tweets[1:10,1:8])
+```
+
+
+2. Visualise the frequency of your tweets
+(take mimimum value out of....)
+
+```{r}
+ts_plot(tweets, "hours") +
+  labs(x = NULL, y = NULL,
+       title = "Frequency of tweets with Baking ",
+       subtitle = paste0(format(min(tweets$created_at), "%d %B %Y"), " to ", format(max(tweets$created_at),"%d %B %Y")),
+       caption = "Baking tweets Data collected from Twitter") +
+  theme_minimal()
+```
+3. Identify top tweeting locations and present the first 10. Write 2-3 sentences on your insights from this. 
+
+```{r}
+
+tweets %>% 
+  filter(!is.na(place_full_name)) %>% 
+  count(place_full_name, sort = TRUE) %>% 
+  top_n(10)
+
+```
+#Insights: The most popular tweeting location is Los Angeles, CA, followed by Chicago, IL , and Manhattan, NY. Therefore, Los Angeles is potential place to approach target customers, partners in baking industry. 
+
+4. Identify the most retweeted tweets and present top 20. Write 2-3 sentences on your insights from this (##line 84 in twitter-Cofee file)
+
+```{r}
+tweets %>% 
+  arrange(-retweet_count) %>%
+  slice(1) %>% 
+  select(created_at, screen_name, text, retweet_count) %>%
+  top_n(20)
+```
+5. Identify the most liked tweets and present the first 15. Write 2-3 sentences on your insights from this 
+
+```{r}
+tweets %>% 
+  arrange(-favorite_count) %>%
+  top_n(15, favorite_count) %>% 
+  select(created_at, screen_name, text, favorite_count)
+
+```
+#Insights:As can be seen from the most liked tweets, the first position got 12,433 favourite count while the 15th position got 3,591 favourite count. Haff of top tweets mentioned about birthday. Therefore, birthday baking is good option for chosing products. 
+6. Identify top tweeters in your dataset and present the first 5. Write a sentence on your insights from this (#LINE 129)
+
+```{r}
+tweets %>% 
+  count(screen_name, sort = TRUE) %>%
+  top_n(5) %>%
+  mutate(screen_name = paste0("@", screen_name))
+```
+#Insights: We can follow these tweeters to see the trends as well as learn from these tweeters topics, keywords to attract more followers. 
+7. Identify top emojis in your dataset and present the first 10. 
+
+```{r}
+library(emo)
+tweets %>%
+  mutate(emoji = ji_extract_all(text)) %>%
+  unnest(cols = c(emoji)) %>%
+  count(emoji, sort = TRUE) %>%
+  top_n(10)
+```
+8. Identify top hashtags in your dataset and present the first 10. Write 2-3 sentences on your insights from this 
+
+```{r}
+library(tidytext)
+tweets %>% 
+  unnest_tokens(hashtag, text, "tweets", to_lower = FALSE) %>%
+  filter(str_detect(hashtag, "^#"),
+        hashtag != "#Baking") %>%
+  count(hashtag, sort = TRUE) %>%
+  top_n(10)
+```
+#Insights: I will use these hashtag such as #baking, #recipes, #bread in my post to approach more view to my post. 
+9. Identify top mentions in your dataset and present the first 10. Write 2-3 sentences on your insights from this
+```{r}
+tweets %>% 
+  unnest_tokens(mentions, text, "tweets", to_lower = FALSE) %>%
+  filter(str_detect(mentions, "^@")) %>%  
+  count(mentions, sort = TRUE) %>%
+  top_n(10)
+```
+#Insights: These top mentions show the name of website, app, company. I can find baking items, baking products from these mention. As can be seen from the top list, etsy will be good place to find baking items.  
+10. Get a list of all accounts that the top tweeter follows and present the first 5
+
+```{r}
+get_friends("nutralift2") %>%
+top_n(5)
+```
+11. Get a list of followers of the top tweeter and present the first 5
+
+
+```{r}
+get_followers("nutralift2", n=75000) %>%
+top_n(5)
+```
+
+### Topic modeling and visualization 
+
+```{r}
+library(tidytext)
+library(tidyverse)
+library(lubridate)
+library(textdata)
+
+library(RColorBrewer)
+library(wordcloud)
+library(wordcloud2)
+
+library(topicmodels)
+library(tm)
+```
+
+```{r}
+tweet<-read_csv("New_Final_Data_Baking.csv")
+
+tweet<-
+  tweet%>%
+  mutate(
+    timestamp=ymd_hms(created_at),
+    day_of_week=wday(timestamp),
+    id=as_factor(row_number())
+  )
+```
+#explore wday() function
+```{r}
+remove_reg <- "&amp;|&lt;|&gt;|\\d+\\w*\\d*|#\\w+|[^\x01-\x7F]|[[:punct:]]|https\\S*"
+# &amp = @
+# &lt;= <
+# &gt; >
+```
+#removing retweets characters
+```{r}
+tidy_tweets <- tweet %>% 
+  filter(!str_detect(text, "^RT")) %>%
+  mutate(text = str_remove_all(text, remove_reg))
+```
+#unnesting tweets 
+```{r}
+tidy_tweets<-tidy_tweets%>%
+  unnest_tokens(word, text, token = "tweets") 
+```
+# Remove mentions, urls, emojis, numbers, punctuations, etc.
+```{r}
+tidy_tweets<-tidy_tweets%>%
+  filter(
+    str_detect(word, "[a-z]")#keep only character-words
+    )%>%
+  anti_join((stop_words))
+
+head(tidy_tweets$word)
+```
+#topic modeling
+
+#create a document term frequency based on how often words are
+```{r}
+tweets_dtm<-tidy_tweets%>%
+  count(id, word)%>%
+  cast_dtm( #converts our data to a special object for R = document term frequency matrix
+    document=id,
+    term=word,
+    value=n,
+    weighting=tm::weightTf
+    )
+
+tweets_dtm
+```
+#to speed up processing let's remove those words that are VERY rare
+#sparse=rare
+```{r}
+#install.packages("tm")
+tweets_dtm_trim<-tm::removeSparseTerms(tweets_dtm, sparse=.99)
+rowTotals <- apply(tweets_dtm_trim, 1, sum) #Find the sum of words in each Document
+tweets_dtm_trim <- tweets_dtm_trim[rowTotals> 0, ] 
+
+tweets_dtm_trim
+```
+#LDA for 5 topics
+```{r}
+tweets_lda<-LDA(tweets_dtm_trim, k=5, control=list(seed=1234))
+
+tweet_topics<-tidy(tweets_lda, matrix="beta")
+```
+
+```{r}
+library("tm")
+library("topicmodels")
+```
+#let's look at them with 10 top words for each topic
+```{r}
+tweet_top_terms <- tweet_topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+```
+
+```{r}
+tweet_top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  scale_x_reordered()
+```
+
+#LDA models identify the words that are most frequently associated with topics specified by the user.
+#Conclustion: The data of my topic shows amazing information for research. From this information, I can find trends, key words, as well as learn from best tweeters for my future tweets. 
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
